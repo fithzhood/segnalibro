@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15171c">
+<title>Segnalibro</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="segnalibro.css">
+</head>
+<body>
+<header class="top">
+  <h1>Segnalibro</h1>
+  <nav class="views" role="tablist">
+    <button role="tab" data-view="corso">In corso <span class="n"></span></button>
+    <button role="tab" data-view="archivio">Archivio <span class="n"></span></button>
+  </nav>
+  <div class="top-actions">
+    <button class="primary" id="addBtn">Aggiungi titolo</button>
+    <details class="menu">
+      <summary aria-label="Altre azioni">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+      </summary>
+      <div class="menu-list">
+        <button id="syncBtn">Aggiorna da AniList</button>
+        <button id="exportBtn">Esporta backup</button>
+        <label class="as-button">Importa backup<input type="file" id="importInput" accept="application/json,.json" hidden></label>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="bar">
+  <div class="kinds" role="group" aria-label="Tipo">
+    <button data-kind="tutti">Tutti <span class="n"></span></button>
+    <button data-kind="anime">Anime <span class="n"></span></button>
+    <button data-kind="manga">Manga <span class="n"></span></button>
+    <button data-kind="serie">Serie <span class="n"></span></button>
+  </div>
+  <label class="sort">Ordina
+    <select id="sortSel">
+      <option value="recenti">Ultimi visti</option>
+      <option value="davedere">Più da vedere</option>
+      <option value="titolo">Titolo</option>
+    </select>
+  </label>
+</div>
+
+<main id="main"></main>
+
+<dialog id="editor">
+  <form method="dialog" id="form">
+    <h2 id="edTitle">Nuovo titolo</h2>
+
+    <label class="field">Link dell'episodio
+      <input type="url" name="link" inputmode="url" autocomplete="off" placeholder="Incolla il link della pagina dell'episodio">
+    </label>
+    <div id="linkInfo" class="link-info"></div>
+
+    <label class="field">Titolo
+      <span class="with-btn">
+        <input type="text" name="title" autocomplete="off" required>
+        <button type="button" id="searchBtn">Cerca copertina</button>
+      </span>
+    </label>
+    <div id="results" class="results" hidden></div>
+
+    <fieldset class="seg" id="kindSeg">
+      <legend>Tipo</legend>
+      <label><input type="radio" name="kind" value="anime" checked><span>Anime</span></label>
+      <label><input type="radio" name="kind" value="manga"><span>Manga</span></label>
+      <label><input type="radio" name="kind" value="serie"><span>Serie</span></label>
+    </fieldset>
+
+    <div class="nums">
+      <label class="field"><span id="seenLabel">Episodi visti</span>
+        <span class="stepper">
+          <button type="button" data-step="-1" aria-label="Uno in meno">−</button>
+          <input type="number" name="seen" min="0" inputmode="numeric" value="0">
+          <button type="button" data-step="1" aria-label="Uno in più">+</button>
+        </span>
+      </label>
+      <label class="field">Usciti finora
+        <input type="number" name="released" min="0" inputmode="numeric" placeholder="non so">
+      </label>
+      <label class="field">Totale
+        <input type="number" name="total" min="0" inputmode="numeric" placeholder="non so">
+      </label>
+    </div>
+
+    <label class="field">Copertina
+      <span class="with-btn">
+        <input type="text" name="cover" autocomplete="off" placeholder="Link di un'immagine">
+        <img id="coverPrev" alt="" hidden>
+      </span>
+    </label>
+
+    <fieldset class="seg">
+      <legend>Stato</legend>
+      <label><input type="radio" name="status" value="corso" checked><span>In corso</span></label>
+      <label><input type="radio" name="status" value="finito"><span>Finito</span></label>
+      <label><input type="radio" name="status" value="droppato"><span>Droppato</span></label>
+    </fieldset>
+
+    <footer class="ed-foot">
+      <button type="button" class="danger" id="delBtn">Elimina dal catalogo</button>
+      <span class="spacer"></span>
+      <button type="button" id="cancelBtn">Annulla</button>
+      <button type="submit" class="primary" value="save">Salva</button>
+    </footer>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden><span></span><button type="button">Annulla</button></div>
+
+<script src="segnalibro.js"></script>
+</body>
+</html>

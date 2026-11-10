@@ -209,7 +209,7 @@ main.addEventListener('click', e => {
       e.preventDefault();
       const u = unit(it);
       native.viewer.open({ url: t.href, title: `${it.title} · ${u.short} ${nextOf(it)}` })
-        .then(res => afterViewer(it, res))
+        .then(res => afterViewer(it, res, t.href))
         .catch(() => toast('Il lettore non si è aperto. Riprova, o apri il link da Modifica.'));
       render();
       return;
@@ -295,9 +295,11 @@ function pickNextLink(raw, cur, n) {
   return bestScore >= 0.6 ? best : null;
 }
 
-/* al ritorno dal lettore: il link fisso segue la pagina dove sei arrivato,
-   e se sei andato avanti di episodio te lo propongo come visto */
-function afterViewer(it, res) {
+/* al ritorno dal lettore: il link fisso segue la pagina dove sei arrivato.
+   Proposta di "visto": se sei passato a un episodio successivo (per esempio col
+   tasto Next del sito), quelli prima li hai finiti; se chiudi sulla pagina da cui
+   eri partito, propongo quello. */
+function afterViewer(it, res, startUrl) {
   const url = res && res.url;
   if (!url || !/^https?:/i.test(url)) { render(); return; }
   const an = analyze(url);
@@ -311,13 +313,19 @@ function afterViewer(it, res) {
     else if (!it.nextLink || n == null || it.nextLink.ep !== n + 1) it.nextLink = null;
   }
   save(); render();
+  if (n == null) return;
   const u = unit(it);
-  if (n != null && n >= nextOf(it) && n - (it.seen || 0) <= 30 && (it.total == null || n <= it.total)) {
+  const aStart = analyze(startUrl || '');
+  const start = aStart.kw ? aStart.nums[aStart.pick].value : nextOf(it);
+  const done = n > start ? n - 1 : n; // ultimo episodio che hai probabilmente finito
+  if (done > (it.seen || 0) && done - (it.seen || 0) <= 30 && (it.total == null || done <= it.total)) {
     const before = { seen: it.seen, opened: it.opened };
-    toast(`${it.title}: arrivato ${u.to} ${n}`, () => {
-      it.seen = n; it.opened = null; it.touched = Date.now(); save(); render();
-      toast(`${it.title}: ${u.seen.slice(0, -1)}o fino al ${n}`, () => { Object.assign(it, before); save(); render(); });
-    }, `Segna ${it.kind === 'manga' ? 'letto' : 'visto'} il ${n}`);
+    const verb = it.kind === 'manga' ? 'letto' : 'visto';
+    const msg = n > start ? `${it.title}: sei passato ${u.to} ${n}` : `${it.title}: eri ${u.to} ${n}`;
+    toast(msg, () => {
+      it.seen = done; it.opened = null; it.touched = Date.now(); save(); render();
+      toast(`${it.title}: ${verb} fino al ${done}`, () => { Object.assign(it, before); save(); render(); });
+    }, `Segna ${verb} il ${done}`);
   }
 }
 

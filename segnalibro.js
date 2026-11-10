@@ -65,7 +65,7 @@ function analyze(url) {
   out.pick = out.nums.length - 1;
   for (let i = out.nums.length - 1; i >= 0; i--) {
     const before = url.slice(Math.max(0, out.nums[i].at - 12), out.nums[i].at).toLowerCase();
-    if (/(episod[ei]o?|episode|ep|chapter|capitolo|cap|ch)[-_/ .]*$/.test(before)) { out.pick = i; break; }
+    if (/(episod[ei]o?|episode|ep|chapter|capitolo|cap|ch)[-_/ .]*$/.test(before)) { out.pick = i; out.kw = true; break; }
   }
   return out;
 }
@@ -199,8 +199,17 @@ main.addEventListener('click', e => {
   if (!it) return;
   if (t.hasAttribute('data-open')) {
     it.opened = nextOf(it); it.touched = Date.now(); save();
+    if (native.viewer) {
+      e.preventDefault();
+      const u = unit(it);
+      native.viewer.open({ url: t.href, title: `${it.title} · ${u.short} ${nextOf(it)}` })
+        .then(res => afterViewer(it, res))
+        .catch(() => toast('Il lettore non si è aperto. Riprova, o apri il link da Modifica.'));
+      render();
+      return;
+    }
     setTimeout(render, 300);
-    return; // il link si apre da solo
+    return; // nel browser il link si apre da solo
   }
   if (t.hasAttribute('data-edit')) return openEditor(it);
   if (t.hasAttribute('data-seen')) {
@@ -230,11 +239,51 @@ $('#sortSel').addEventListener('change', e => { prefs.sort = e.target.value; sav
 $('#addBtn').addEventListener('click', () => openEditor(null));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
+/* ---------- app per Android: lettore interno ---------- */
+const native = (() => {
+  const C = window.Capacitor;
+  if (!C || !C.isNativePlatform || !C.isNativePlatform()) return {};
+  const get = name => (C.Plugins && C.Plugins[name]) || (C.registerPlugin ? C.registerPlugin(name) : null);
+  return { viewer: get('Viewer'), fs: get('Filesystem'), share: get('Share') };
+})();
+
+function siteLabel(url) {
+  const p = host(url).split('.');
+  if (p.length < 2) return p[0] || '';
+  let l = p[p.length - 2];
+  if (p.length >= 3 && ['co', 'com', 'net', 'org', 'ac', 'gov'].includes(l)) l = p[p.length - 3];
+  return l;
+}
+
+/* al ritorno dal lettore: il link fisso segue la pagina dove sei arrivato,
+   e se sei andato avanti di episodio te lo propongo come visto */
+function afterViewer(it, res) {
+  const url = res && res.url;
+  if (!url || !/^https?:/i.test(url)) { render(); return; }
+  const an = analyze(url);
+  const n = an.kw ? an.nums[an.pick].value : null;
+  const linkUrl = it.mode === 'tpl' ? fill(it.link, nextOf(it)) : it.link;
+  if (it.mode !== 'tpl' && url !== it.link && siteLabel(url) === siteLabel(linkUrl)) {
+    it.link = url;
+    it.linkEp = n;
+  }
+  save(); render();
+  const u = unit(it);
+  if (n != null && n >= nextOf(it) && n - (it.seen || 0) <= 30 && (it.total == null || n <= it.total)) {
+    const before = { seen: it.seen, opened: it.opened };
+    toast(`${it.title}: arrivato ${u.to} ${n}`, () => {
+      it.seen = n; it.opened = null; it.touched = Date.now(); save(); render();
+      toast(`${it.title}: ${u.seen.slice(0, -1)}o fino al ${n}`, () => { Object.assign(it, before); save(); render(); });
+    }, `Segna ${it.kind === 'manga' ? 'letto' : 'visto'} il ${n}`);
+  }
+}
+
 /* ---------- toast ---------- */
 let toastTimer;
-function toast(msg, undo) {
+function toast(msg, undo, label = 'Annulla') {
   const el = $('#toast'), btn = $('button', el);
   $('span', el).textContent = msg;
+  btn.textContent = label;
   btn.hidden = !undo;
   btn.onclick = () => { el.hidden = true; undo && undo(); };
   el.hidden = false;
@@ -482,12 +531,24 @@ async function sync(manual) {
 $('#syncBtn').addEventListener('click', () => { $('.menu').open = false; sync(true); });
 
 /* ---------- backup ---------- */
-$('#exportBtn').addEventListener('click', () => {
+$('#exportBtn').addEventListener('click', async () => {
   $('.menu').open = false;
-  const blob = new Blob([JSON.stringify({ app: 'segnalibro', version: 1, saved: new Date().toISOString(), items }, null, 1)], { type: 'application/json' });
+  const json = JSON.stringify({ app: 'segnalibro', version: 1, saved: new Date().toISOString(), items }, null, 1);
+  const name = `segnalibro-${new Date().toISOString().slice(0, 10)}.json`;
+  if (native.fs && native.share) {
+    // nell'app i download non esistono: scrivo il file e lo passo al menu Condividi (Drive, Files...)
+    try {
+      const w = await native.fs.writeFile({ path: name, data: json, directory: 'CACHE', encoding: 'utf8' });
+      await native.share.share({ title: 'Backup di Segnalibro', files: [w.uri] });
+    } catch (err) {
+      if (!/cancel/i.test(String(err && err.message))) toast('Backup non riuscito. Riprova.');
+    }
+    return;
+  }
+  const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `segnalibro-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });

@@ -47,9 +47,14 @@ function nextOf(it) { return (it.seen || 0) + 1; }
 function avail(it) { return it.released ?? it.total ?? null; }
 function remaining(it) { const a = avail(it); return a == null ? null : Math.max(0, a - (it.seen || 0)); }
 function isDone(it) { return it.total != null && (it.seen || 0) >= it.total; }
+/* link fisso: se il lettore ha trovato il link dell'episodio dopo, e quello è il prossimo, uso quello */
+function fixedTarget(it) {
+  if (it.nextLink && it.nextLink.ep === nextOf(it)) return { url: it.nextLink.url, ep: it.nextLink.ep };
+  return { url: it.link, ep: it.linkEp };
+}
 function urlOf(it) {
   if (!it.link) return '';
-  return it.mode === 'tpl' ? fill(it.link, nextOf(it)) : it.link;
+  return it.mode === 'tpl' ? fill(it.link, nextOf(it)) : fixedTarget(it).url;
 }
 
 /* analisi di un link: trova i numeri dopo il dominio e indovina quale è l'episodio */
@@ -117,8 +122,9 @@ function metaHTML(it) {
 function siteHTML(it) {
   if (!it.link) return `<p class="site">Senza link</p>`;
   const h = esc(host(it.link.replace(/\{n(:\d)?\}/g, '1')));
-  if (it.mode !== 'tpl' && it.linkEp != null && it.linkEp !== nextOf(it))
-    return `<p class="site stale" title="Il link fisso porta ${unit(it).to} ${it.linkEp}">${h} · link al ${it.linkEp}</p>`;
+  const ep = it.mode !== 'tpl' ? fixedTarget(it).ep : null;
+  if (ep != null && ep !== nextOf(it))
+    return `<p class="site stale" title="Il link fisso porta ${unit(it).to} ${ep}">${h} · link al ${ep}</p>`;
   return `<p class="site">${h}</p>`;
 }
 
@@ -255,6 +261,40 @@ function siteLabel(url) {
   return l;
 }
 
+/* fra i link della pagina, quello dell'episodio n+1 della stessa serie:
+   stesso sito, numero n+1 dopo "episode/chapter/ch", e indirizzo simile a quello attuale */
+function stemOf(url, an) {
+  try {
+    const u = new URL(url);
+    return url.slice(url.indexOf(u.host) + u.host.length, an.nums[an.pick].at);
+  } catch { return ''; }
+}
+function overlap(a, b) {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  let j = 0;
+  while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+  return i + j;
+}
+function pickNextLink(raw, cur, n) {
+  let links;
+  try { links = JSON.parse(raw || '[]'); } catch { return null; }
+  if (!Array.isArray(links)) return null;
+  const aCur = analyze(cur);
+  if (!aCur.kw) return null;
+  const site = siteLabel(cur), stem = stemOf(cur, aCur), base = cur.split('#')[0];
+  let best = null, bestScore = 0;
+  for (const l of links) {
+    if (!l || typeof l.h !== 'string' || siteLabel(l.h) !== site || l.h.split('#')[0] === base) continue;
+    const a = analyze(l.h);
+    if (!a.kw || a.nums[a.pick].value !== n + 1) continue;
+    const score = overlap(stem, stemOf(l.h, a)) / Math.max(1, stem.length)
+      + (/next|successiv|prossim|rel-next/i.test(l.t || '') ? 0.2 : 0);
+    if (score > bestScore) { bestScore = score; best = l.h; }
+  }
+  return bestScore >= 0.6 ? best : null;
+}
+
 /* al ritorno dal lettore: il link fisso segue la pagina dove sei arrivato,
    e se sei andato avanti di episodio te lo propongo come visto */
 function afterViewer(it, res) {
@@ -263,9 +303,12 @@ function afterViewer(it, res) {
   const an = analyze(url);
   const n = an.kw ? an.nums[an.pick].value : null;
   const linkUrl = it.mode === 'tpl' ? fill(it.link, nextOf(it)) : it.link;
-  if (it.mode !== 'tpl' && url !== it.link && siteLabel(url) === siteLabel(linkUrl)) {
-    it.link = url;
-    it.linkEp = n;
+  if (it.mode !== 'tpl' && siteLabel(url) === siteLabel(linkUrl)) {
+    if (url !== it.link) { it.link = url; it.linkEp = n; }
+    // cerco nella pagina il link all'episodio dopo
+    const nx = n != null ? pickNextLink(res.links, url, n) : null;
+    if (nx) it.nextLink = { url: nx, ep: n + 1 };
+    else if (!it.nextLink || n == null || it.nextLink.ep !== n + 1) it.nextLink = null;
   }
   save(); render();
   const u = unit(it);
@@ -299,7 +342,7 @@ let ed = null; // { item, an, mode, seenTouched }
 function openEditor(it) {
   const isNew = !it;
   const base = it ? { ...it } : { id: uid(), title: '', kind: prefs.kind !== 'tutti' ? prefs.kind : 'anime', status: 'corso', seen: 0, released: null, total: null, link: '', mode: 'fixed', linkEp: null, cover: '', created: Date.now() };
-  ed = { item: base, isNew, seenTouched: !isNew, mode: base.mode || 'fixed' };
+  ed = { item: base, isNew, seenTouched: !isNew, mode: base.mode || 'fixed', prevLink: base.link };
   $('#edTitle').textContent = isNew ? 'Nuovo titolo' : base.title;
   $('#delBtn').hidden = isNew;
   F.title.value = base.title;
@@ -422,6 +465,7 @@ form.addEventListener('submit', e => {
   else if (an.tpl) { it.link = url; it.mode = 'tpl'; it.linkEp = null; }
   else if (ed.mode === 'tpl' && an.pick >= 0) { it.link = makeTemplate(url, an.nums[an.pick]); it.mode = 'tpl'; it.linkEp = null; }
   else { it.link = url; it.mode = 'fixed'; it.linkEp = an.pick >= 0 ? an.nums[an.pick].value : null; }
+  if (it.link !== ed.prevLink) it.nextLink = null; // link cambiato a mano: il "successivo" trovato prima non vale più
   it.touched = Date.now();
   if (ed.isNew) items.push(it); else Object.assign(byId(it.id), it);
   if (!save()) return;
